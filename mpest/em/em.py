@@ -202,7 +202,7 @@ class EM(ASolver):
             return self._steps
 
     @staticmethod
-    def step(problem: Problem, method: Method) -> ResultWithError[MixtureDistribution]:
+    def step(problem: Problem, method: Method) -> Result:
         """EM algo step"""
 
         return method.step(problem)
