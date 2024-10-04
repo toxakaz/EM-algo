@@ -202,7 +202,7 @@ class EM(ASolver):
             return self._steps
 
     @staticmethod
-    def step(problem: Problem, method: Method) -> ResultWithError[MixtureDistribution]:
+    def step(problem: Problem, method: Method) -> Result:
         """EM algo step"""
 
         return method.step(problem)
@@ -210,6 +210,7 @@ class EM(ASolver):
     def solve_logged(
         self,
         problem: Problem,
+        normalize=True,
         create_history: bool = False,
         remember_time: bool = False,
     ) -> ResultWithLog[ResultWithError[MixtureDistribution], Log]:
@@ -225,6 +226,35 @@ class EM(ASolver):
                 distributions.content.all_distributions,
                 distributions.error,
             )
+
+        def preprocess_problem(problem: Problem) -> Problem:
+            mixture = problem.distributions
+            new_mixture = MixtureDistribution(
+                [
+                    DistributionInMixture(
+                        d.model,
+                        d.model.params_convert_to_model(d.params),
+                        d.prior_probability,
+                    )
+                    for d in mixture
+                ]
+            )
+            return Problem(problem.samples, new_mixture)
+
+        def postprocess_result(result: ResultWithError) -> ResultWithError:
+            mixture = result.content
+            new_mixture = MixtureDistribution(
+                [
+                    DistributionInMixture(
+                        d.model,
+                        d.model.params_convert_from_model(d.params),
+                        d.prior_probability,
+                    )
+                    for d in mixture
+                ]
+            )
+
+            return ResultWithError(new_mixture, result.error)
 
         @logged(
             history,
@@ -260,6 +290,9 @@ class EM(ASolver):
 
             return ResultWithError(distributions, error)
 
+        if normalize:
+            problem = preprocess_problem(problem)
+
         previous_step = None
         distributions = EM._DistributionMixtureAlive(list(problem.distributions))
         step = 0
@@ -271,7 +304,7 @@ class EM(ASolver):
             step += 1
 
         return ResultWithLog(
-            ResultWithError(distributions.all_distributions),
+            postprocess_result(ResultWithError(distributions.all_distributions)),
             EM.Log(history, step),
         )
 
@@ -280,43 +313,8 @@ class EM(ASolver):
         Solve problem with EM algorithm
 
         :param problem: Problem with your mixture with initial parameters
-
         :param normalize: Normalize parameters inside EM algo.
         Default is True which means to normalize params, False if you don't want to normalize
         """
 
-        def preprocess_problem(problem: Problem) -> Problem:
-            mixture = problem.distributions
-            new_mixture = MixtureDistribution(
-                [
-                    DistributionInMixture(
-                        d.model,
-                        d.model.params_convert_to_model(d.params),
-                        d.prior_probability,
-                    )
-                    for d in mixture
-                ]
-            )
-            return Problem(problem.samples, new_mixture)
-
-        def postprocess_result(result: ResultWithError) -> ResultWithError:
-            mixture = result.content
-            new_mixture = MixtureDistribution(
-                [
-                    DistributionInMixture(
-                        d.model,
-                        d.model.params_convert_from_model(d.params),
-                        d.prior_probability,
-                    )
-                    for d in mixture
-                ]
-            )
-
-            return ResultWithError(new_mixture, result.error)
-
-        if normalize:
-            new_problem = preprocess_problem(problem)
-            result = self.solve_logged(new_problem, False, False).content
-            return postprocess_result(result)
-
-        return self.solve_logged(problem, False, False).content
+        return self.solve_logged(problem, normalize, False, False).content
